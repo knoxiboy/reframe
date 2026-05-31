@@ -407,7 +407,42 @@ export function useVideoEditor() {
       return;
     }
 
+    // Layer 3.5: Custom Audio Format & Codec Validation Check
+    const hasUnsupportedAudio = await new Promise<boolean>((resolve) => {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) {
+        resolve(false);
+        return;
+      }
+      const audioContext = new AudioContextClass();
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const arrayBuffer = e.target?.result as ArrayBuffer;
+          // Attempt decoding a tiny slice to verify codec compatibility
+          await audioContext.decodeAudioData(arrayBuffer.slice(0, 128 * 1024));
+          resolve(false); // Supported
+        } catch {
+          // If decoding fails, check if the file format has a high likelihood of containing unsupported audio tracks
+          const filename = selectedFile.name.toLowerCase();
+          const likelyUnsupported = filename.endsWith(".wma") || filename.endsWith(".dts") || filename.endsWith(".adpcm");
+          resolve(likelyUnsupported);
+        } finally {
+          audioContext.close();
+        }
+      };
+      reader.onerror = () => resolve(false);
+      reader.readAsArrayBuffer(selectedFile.slice(0, 128 * 1024));
+    });
+
+    if (hasUnsupportedAudio) {
+      setError("Validation Warning: Unsupported audio format or codec detected in tracks. The media player may fail to decode this audio format.");
+      setStatus("error");
+      return;
+    }
+
     try {
+
       const { width, height, duration: dur } = await extractMetadata(selectedFile);
 
       // Layer 5: Resolution check
